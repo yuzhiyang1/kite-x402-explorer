@@ -1,0 +1,63 @@
+name: Exact source extra validation
+
+on:
+  push:
+    branches: [codex/validate-explorer-extra-20261127]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: invoice-valid-expiry
+            sha: 7aec4e6b84c47e1bdff14db853c8b3b2cb175b07
+          - name: subscription-renewal-price
+            sha: 2a16e8eee257ef402dd98dee8face90e855d14e8
+          - name: credit-lifecycle-guards
+            sha: 0951be02762ef84607bc9c85a27400fadfd7282e
+          - name: sla-record-isolation
+            sha: f6b4dfa690d2f6f93487d0d1ac816b805a98e7cf
+          - name: fee-tier-ownership
+            sha: b32d37c4007e23bffddf86a99283a862f5b36371
+          - name: vault-reserve-rounding
+            sha: 2e3f2f794cd502334cac268f9516728d29d49cb4
+          - name: receipt-inclusion-validation
+            sha: 7aa6589a910ec6f967bf858ff290613d1a94ff1d
+          - name: insurance-premium-precision
+            sha: f32b87818c8fa36aca5ea3d2b53692cb227f5655
+          - name: subscription-plan-binding
+            sha: a74337c6c85ee8db54a2b3def3bd45dbf0c2aa90
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ matrix.sha }}
+      - name: Verify exact source commit
+        run: test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm test
+      - run: npm run build
+      - name: Build production image
+        run: docker build -t kite-explorer:test .
+      - name: Start production image without external network access
+        run: docker run --detach --network none --name kite-explorer-smoke kite-explorer:test
+      - name: Verify production API and SPA
+        run: docker exec -i kite-explorer-smoke node --input-type=module < scripts/smoke-production.mjs
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs kite-explorer-smoke
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f kite-explorer-smoke
