@@ -1,0 +1,79 @@
+name: Exact source extra validation
+
+on:
+  push:
+    branches: [codex/validate-explorer-extra-20261128]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: stream-deposit-snapshot
+            sha: 2be15d2a818e39b7f6274a272426a9b8eb5d9f74
+          - name: channel-verification-snapshots
+            sha: a80c43f231309b97da02d80b660cfd7e0c82bd03
+          - name: sponsorship-verification-snapshots
+            sha: 69ef7dac8ff79f046110ad3b086d0c79807c9d9d
+          - name: semantic-cache-time-validation
+            sha: 5164c06dea4b41baf592759762abd324acd95a5d
+          - name: performance-sample-ownership
+            sha: 2fa109aaababe9bf6e3a17e7bd2b213ff7e81f74
+          - name: subgraph-query-snapshots
+            sha: ccc1bd33fb20dbf50f93872a96be65766b62cbcb
+          - name: consensus-hash-canonicalization
+            sha: c873f00bec5f57e6414adfe592c71f87cc98d8be
+          - name: stream-terminal-settlement
+            sha: 2d4fa773eb1615c7ab10cb77bded70aeb852104e
+          - name: milestone-transition-snapshots
+            sha: 41fff7358e6bde6953fd19de11c93b0ff3d3acdc
+          - name: bridge-fulfillment-snapshot
+            sha: c5f54d0e5d696baaf4067236fe8d6d2c0487f534
+          - name: compute-completion-context
+            sha: aa96ff1eb16e0bdd551e2f8bcecda95c5c148832
+          - name: probe-expected-status
+            sha: bf28f3a660058634e281106529459f99107ccf4f
+          - name: capability-registration-snapshot
+            sha: 22d153cc431304c758d42bc678973d53be100ad2
+          - name: market-policy-installation
+            sha: 631d0c80d637016d9717f3d910109c26dc28f6af
+          - name: swarm-token-unit-format
+            sha: 972017a8700fffc6c5b16023a720a91b2fe9272e
+          - name: market-quote-time-boundaries
+            sha: 2ffad77d7ee5522d739f495e05bd42d0f432888a
+          - name: combined-16-fixes
+            sha: b666072534981a2ff5370a88fb10b84d5870b070
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ matrix.sha }}
+      - name: Verify exact source commit
+        run: test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm test
+      - run: npm run build
+      - name: Build production image
+        run: docker build -t kite-explorer:test .
+      - name: Start production image without external network access
+        run: docker run --detach --network none --name kite-explorer-smoke kite-explorer:test
+      - name: Verify production API and SPA
+        run: docker exec -i kite-explorer-smoke node --input-type=module < scripts/smoke-production.mjs
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs kite-explorer-smoke
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f kite-explorer-smoke
